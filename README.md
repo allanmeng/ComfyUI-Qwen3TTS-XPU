@@ -113,7 +113,7 @@ pip install -r requirements.txt
 
 ### Important Notes
 
-⚠️ **First Run**: Models (~6GB) will be automatically downloaded to `ComfyUI/models/qwen-tts/`  
+⚠️ **Models path**: Place models in `ComfyUI/models/TTS/Qwen3-TTS/`. Set `QWEN_TTS_ALLOW_DOWNLOAD=1` to enable automatic download from HuggingFace, otherwise offline mode only.
 ⚠️ **Dependencies**: Requires PyTorch 2.0+ and transformers 4.30+  
 ⚠️ **Qwen TTS Package**: The `qwen_tts` package should be included as a submodule or folder  
 
