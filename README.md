@@ -29,7 +29,32 @@ Based on the open-source [Qwen3-TTS project](https://github.com/QwenLM/Qwen-Audi
 
 ## ✨ Features
 
+### 🔷 XPU Optimizations (Intel Arc GPU — New in this fork)
+
+This project is forked and extended from [ai-joe-git/ComfyUI-Qwen3-TTS](https://github.com/ai-joe-git/ComfyUI-Qwen3-TTS) with dedicated optimizations for Intel Arc GPU (XPU). The following five panel options are added to all three nodes:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| 🔷 **torch_compile** | Off | Compiles talker + code predictor with `inductor` backend. First run ~2.5 min warm-up, then **6.5 tok/s** (2× speedup). Requires Intel oneAPI / MSVC. |
+| 🔷 **quantize_int8** | Off | Weight-only INT8 quantization on all Linear layers. Saves ~1.5 GB VRAM with slight speed trade-off. Not recommended with torch_compile. |
+| 🔷 **full_text_prefill** | On | Feed the entire text to the talker in one shot (recommended). Off = streaming token-by-token input, same speed but lower quality. |
+| 🔷 **cache_clean** | On | Flushes XPU allocator cache before/after each generation. Prevents `UR_RESULT_ERROR_OUT_OF_RESOURCES` OOM on the second run caused by torch_compile residual buffers. Does **not** evict model weights or compiled kernels — second generation is still a hot-start. |
+| **trailing_pad** | `…………………` | Appended to the end of input text to prevent the model from generating EOS before it finishes speaking the last few characters. Adjust length if truncation persists. |
+
+**Measured performance on Intel Arc B580 (12 GB VRAM):**
+
+| Configuration | Speed |
+|---------------|-------|
+| CPU baseline | ~0.1 tok/s |
+| XPU basic fixes | 1.4 tok/s |
+| + Manual Code Predictor loop | 2.9 tok/s |
+| + torch.compile inductor (warm) | **6.5 tok/s** |
+
+---
+
 ### Three Powerful Nodes
+
+> Based on [ai-joe-git/ComfyUI-Qwen3-TTS](https://github.com/ai-joe-git/ComfyUI-Qwen3-TTS) — all original node functionality is preserved.
 
 #### 🎭 Qwen3-TTS VoiceClone
 Clone voices from reference audio and synthesize new speech:
