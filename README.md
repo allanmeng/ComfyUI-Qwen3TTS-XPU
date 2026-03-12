@@ -46,13 +46,13 @@ Key changes over the original:
 
 Each node requires a specific model variant. Place all models under `ComfyUI/models/TTS/Qwen3-TTS/`.
 
-| Node | Recommended Model | Notes |
-|------|-------------------|-------|
-| 🎵 **CustomVoice** | `Qwen3-TTS-12Hz-1.7B-CustomVoice` | Best quality for preset speakers |
-| 🎵 **CustomVoice** (fast) | `Qwen3-TTS-12Hz-0.6B-CustomVoice` | Faster, slightly lower quality |
-| 🎭 **VoiceClone** | `Qwen3-TTS-12Hz-1.7B-Base` | Best clone accuracy |
-| 🎭 **VoiceClone** (fast) | `Qwen3-TTS-12Hz-0.6B-Base` | Faster clone |
-| 🎨 **VoiceDesign** | `Qwen3-TTS-12Hz-1.7B-VoiceDesign` | **1.7B only**, no 0.6B variant |
+| Node | Recommended Model | Download | Notes |
+|------|-------------------|----------|-------|
+| 🎵 **CustomVoice** | `Qwen3-TTS-12Hz-1.7B-CustomVoice` | [HuggingFace](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice) | Best quality for preset speakers |
+| 🎵 **CustomVoice** (fast) | `Qwen3-TTS-12Hz-0.6B-CustomVoice` | [HuggingFace](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice) | Faster, slightly lower quality |
+| 🎭 **VoiceClone** | `Qwen3-TTS-12Hz-1.7B-Base` | [HuggingFace](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base) | Best clone accuracy |
+| 🎭 **VoiceClone** (fast) | `Qwen3-TTS-12Hz-0.6B-Base` | [HuggingFace](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base) | Faster clone |
+| 🎨 **VoiceDesign** | `Qwen3-TTS-12Hz-1.7B-VoiceDesign` | [HuggingFace](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign) | **1.7B only**, no 0.6B variant |
 
 Download from HuggingFace (Qwen org) and place each model folder directly under `ComfyUI/models/TTS/Qwen3-TTS/`:
 
