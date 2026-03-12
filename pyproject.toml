@@ -7,9 +7,9 @@ license = { file = "LICENSE" }
 dependencies = []
 
 [project.urls]
-Repository = "https://github.com/ai-joe-git/ComfyUI-Qwen3-TTS"
+Repository = "https://github.com/allanmeng/ComfyUI-Qwen3TTS-XPU"
 
 [tool.comfy]
-PublisherId = "ai-joe-git"
-DisplayName = "Simple Qwen3-TTS"
+PublisherId = "allanmeng"
+DisplayName = "Qwen3-TTS XPU"
 Icon = ""

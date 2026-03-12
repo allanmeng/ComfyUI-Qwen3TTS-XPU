@@ -1,4 +1,4 @@
-# ComfyUI-Qwen3-TTS
+# ComfyUI-Qwen3TTS-XPU
 
 <div align="center">
 
@@ -17,7 +17,7 @@
 
 ## 📖 Overview
 
-ComfyUI-Qwen3-TTS brings Alibaba's powerful Qwen3-TTS models to ComfyUI, enabling high-quality text-to-speech synthesis with three distinct capabilities:
+ComfyUI-Qwen3TTS-XPU brings Alibaba's powerful Qwen3-TTS models to ComfyUI, enabling high-quality text-to-speech synthesis with three distinct capabilities:
 
 - **🎭 Voice Cloning**: Clone any voice from a reference audio sample
 - **🎨 Voice Design**: Create custom voices from text descriptions
@@ -70,8 +70,8 @@ Use preset high-quality voices:
 
 ```bash
 cd ComfyUI/custom_nodes/
-git clone https://github.com/ai-joe-git/ComfyUI-Qwen3-TTS.git
-cd ComfyUI-Qwen3-TTS
+git clone https://github.com/allanmeng/ComfyUI-Qwen3TTS-XPU.git
+cd ComfyUI-Qwen3TTS-XPU
 pip install -r requirements.txt
 ```
 
@@ -81,8 +81,8 @@ If your ComfyUI is a git repository:
 
 ```bash
 cd ComfyUI/custom_nodes/
-git submodule add https://github.com/ai-joe-git/ComfyUI-Qwen3-TTS.git
-cd ComfyUI-Qwen3-TTS
+git submodule add https://github.com/allanmeng/ComfyUI-Qwen3TTS-XPU.git
+cd ComfyUI-Qwen3TTS-XPU
 pip install -r requirements.txt
 ```
 
@@ -233,7 +233,7 @@ snapshot_download(repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-Base",
 ### Import Errors
 ```bash
 # Reinstall dependencies
-cd ComfyUI/custom_nodes/ComfyUI-Qwen3-TTS
+cd ComfyUI/custom_nodes/ComfyUI-Qwen3TTS-XPU
 pip install -r requirements.txt --force-reinstall
 ```
 
@@ -282,8 +282,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📮 Support
 
-- **Issues**: [GitHub Issues](https://github.com/ai-joe-git/ComfyUI-Qwen3-TTS/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/ai-joe-git/ComfyUI-Qwen3-TTS/discussions)
+- **Issues**: [GitHub Issues](https://github.com/allanmeng/ComfyUI-Qwen3TTS-XPU/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/allanmeng/ComfyUI-Qwen3TTS-XPU/discussions)
 
 ---
 

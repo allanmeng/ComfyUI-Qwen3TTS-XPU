@@ -1,20 +1,15 @@
 # Core dependencies
-torch>=2.0.0
-torchaudio>=2.0.0
+torch>=2.7.0
+torchaudio>=2.7.0
 transformers>=4.30.0
 librosa>=0.10.0
 soundfile>=0.12.0
 accelerate>=0.20.0
 numpy>=1.24.0
-einops>=0.6.0
 tiktoken>=0.5.0
 sentencepiece>=0.1.99
-onnxruntime
-sox
 
-# For model downloads
-huggingface-hub>=0.16.0
-
-# Optional: Intel Extension for PyTorch for better XPU performance
-# Uncomment the line below if you have Intel Arc GPU
-# intel-extension-for-pytorch>=2.0.0
+# Intel Arc XPU acceleration
+# Requires torch+xpu build (e.g. torch 2.11.0+xpu)
+# Required for torch.compile with inductor backend:
+# pytorch-triton-xpu>=3.3.0

@@ -1,4 +1,4 @@
-# ComfyUI-Qwen3-TTS Custom Nodes
+# ComfyUI-Qwen3TTS-XPU Custom Nodes
 
 # Based on the open-source Qwen3-TTS project by Alibaba Qwen team
 
@@ -19,16 +19,16 @@ from .nodes import (
 )
 
 NODE_CLASS_MAPPINGS = {
-    "Qwen3TTSVoiceClone": VoiceCloneNode,
-    "Qwen3TTSVoiceDesign": VoiceDesignNode,
-    "Qwen3TTSCustomVoice": CustomVoiceNode,
+    "Qwen3TTS_XPU_VoiceCloneNode": VoiceCloneNode,
+    "Qwen3TTS_XPU_VoiceDesignNode": VoiceDesignNode,
+    "Qwen3TTS_XPU_CustomVoiceNode": CustomVoiceNode,
 }
 
 # Display names for the nodes
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Qwen3TTSVoiceClone": "🎭 Qwen3-TTS VoiceClone",
-    "Qwen3TTSVoiceDesign": "🎨 Qwen3-TTS VoiceDesign",
-    "Qwen3TTSCustomVoice": "🎵 Qwen3-TTS CustomVoice",
+    "Qwen3TTS_XPU_VoiceCloneNode": "Qwen3TTS_XPU_VoiceClone",
+    "Qwen3TTS_XPU_VoiceDesignNode": "Qwen3TTS_XPU_VoiceDesign",
+    "Qwen3TTS_XPU_CustomVoiceNode": "Qwen3TTS_XPU_CustomVoice",
 }
 
 # Version information
@@ -39,4 +39,4 @@ WEB_DIRECTORY = "./web"
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "__version__"]
 
-print(f"✅ ComfyUI-Qwen3-TTS v{__version__} loaded")
+print(f"✅ ComfyUI-Qwen3-TTS-XPU v{__version__} loaded")

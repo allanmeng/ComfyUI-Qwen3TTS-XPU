@@ -109,7 +109,7 @@ class Qwen3TTSTokenizerV1DecoderDiTRotaryEmbedding(nn.Module):
         batch_size, seq_len = x.shape[0], x.shape[1]
         t = torch.arange(seq_len, device=x.device)
         device_type = x.device.type
-        device_type = device_type if device_type != "mps" else "cpu"
+        device_type = device_type if device_type not in ("mps", "xpu") else "cpu"
         with torch.autocast(device_type=device_type, enabled=False):
             freqs = t.unsqueeze(1).float() @ self.inv_freq.unsqueeze(0).float()
             freqs = torch.stack((freqs, freqs), dim=-1)

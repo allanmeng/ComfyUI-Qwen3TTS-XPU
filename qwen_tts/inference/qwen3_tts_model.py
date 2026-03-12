@@ -15,6 +15,7 @@
 # limitations under the License.
 import base64
 import io
+import time
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -705,7 +706,14 @@ class Qwen3TTSModel:
 
         self._validate_languages(languages)
 
+        _t0 = time.time()
+        print(f"[Verbose] model.device={self.device}  "
+              f"speech_tokenizer.device={getattr(self.model.speech_tokenizer, 'device', 'N/A')}")
+
         input_ids = self._tokenize_texts([self._build_assistant_text(t) for t in texts])
+        _t1 = time.time()
+        print(f"[Verbose] Tokenize       : {_t1-_t0:.2f}s  "
+              f"input_ids[0].device={input_ids[0].device}")
 
         instruct_ids: List[Optional[torch.Tensor]] = []
         for ins in instructs:
@@ -716,6 +724,7 @@ class Qwen3TTSModel:
 
         gen_kwargs = self._merge_generate_kwargs(**kwargs)
 
+        _t2 = time.time()
         talker_codes_list, _ = self.model.generate(
             input_ids=input_ids,
             instruct_ids=instruct_ids,
@@ -723,8 +732,15 @@ class Qwen3TTSModel:
             non_streaming_mode=non_streaming_mode,
             **gen_kwargs,
         )
+        _t3 = time.time()
+        _total_tokens = sum(c.shape[0] for c in talker_codes_list)
+        print(f"[Verbose] XPU Generate   : {_t3-_t2:.2f}s  tokens={_total_tokens}  "
+              f"codes[0].device={talker_codes_list[0].device}")
 
         wavs, fs = self.model.speech_tokenizer.decode([{"audio_codes": c} for c in talker_codes_list])
+        _t4 = time.time()
+        print(f"[Verbose] Audio Decode   : {_t4-_t3:.2f}s")
+        print(f"[Verbose] Total inference: {_t4-_t0:.2f}s")
         return wavs, fs
 
     # custom voice model
@@ -815,7 +831,14 @@ class Qwen3TTSModel:
         self._validate_languages(languages)
         self._validate_speakers(speakers)
 
+        _t0 = time.time()
+        print(f"[Verbose] model.device={self.device}  "
+              f"speech_tokenizer.device={getattr(self.model.speech_tokenizer, 'device', 'N/A')}")
+
         input_ids = self._tokenize_texts([self._build_assistant_text(t) for t in texts])
+        _t1 = time.time()
+        print(f"[Verbose] Tokenize       : {_t1-_t0:.2f}s  "
+              f"input_ids[0].device={input_ids[0].device}")
 
         instruct_ids: List[Optional[torch.Tensor]] = []
         for ins in instructs:
@@ -826,6 +849,12 @@ class Qwen3TTSModel:
 
         gen_kwargs = self._merge_generate_kwargs(**kwargs)
 
+        _xpu_mem_before = 0
+        _xpu_mem_after = 0
+        if hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.synchronize()
+            _xpu_mem_before = torch.xpu.memory_allocated() // 1024 // 1024
+        _t2 = time.time()
         talker_codes_list, _ = self.model.generate(
             input_ids=input_ids,
             instruct_ids=instruct_ids,
@@ -834,8 +863,19 @@ class Qwen3TTSModel:
             non_streaming_mode=non_streaming_mode,
             **gen_kwargs,
         )
+        if hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.synchronize()
+            _xpu_mem_after = torch.xpu.memory_allocated() // 1024 // 1024
+        _t3 = time.time()
+        _total_tokens = sum(c.shape[0] for c in talker_codes_list)
+        print(f"[Verbose] XPU Generate   : {_t3-_t2:.2f}s  tokens={_total_tokens}  "
+              f"codes[0].device={talker_codes_list[0].device}  "
+              f"xpu_mem={_xpu_mem_before}MB→{_xpu_mem_after}MB")
 
         wavs, fs = self.model.speech_tokenizer.decode([{"audio_codes": c} for c in talker_codes_list])
+        _t4 = time.time()
+        print(f"[Verbose] Audio Decode   : {_t4-_t3:.2f}s")
+        print(f"[Verbose] Total inference: {_t4-_t0:.2f}s")
         return wavs, fs
 
 
