@@ -39,7 +39,12 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from transformers.processing_utils import Unpack
 from transformers.utils import ModelOutput, auto_docstring, logging
 from transformers.utils.deprecation import deprecate_kwarg
-from transformers.utils.generic import check_model_inputs
+from transformers.utils.generic import check_model_inputs as _check_model_inputs_fallback
+
+try:
+    from transformers.utils.generic import merge_with_config_defaults as check_model_inputs
+except ImportError:
+    check_model_inputs = _check_model_inputs_fallback
 
 from .configuration_qwen3_tts_tokenizer_v2 import (
     Qwen3TTSTokenizerV2Config,
@@ -47,6 +52,12 @@ from .configuration_qwen3_tts_tokenizer_v2 import (
 )
 
 logger = logging.get_logger(__name__)
+
+# Docstring for cache_position parameter (required by transformers 5.x auto_docstring validation)
+CACHE_POSITION_DOC = r"""
+cache_position (`torch.LongTensor`, *optional*):
+    Position indices for cached tokens in the sequence. Used for KV-cache-aware positional encoding.
+"""
 
 
 @dataclass
@@ -495,8 +506,8 @@ class Qwen3TTSTokenizerV2DecoderTransformerModel(Qwen3TTSTokenizerV2DecoderPreTr
         # Initialize weights and apply final processing
         self.post_init()
 
-    @check_model_inputs()
-    @auto_docstring
+    @check_model_inputs
+    @auto_docstring(custom_args=CACHE_POSITION_DOC)
     def forward(
         self,
         input_ids=None,
