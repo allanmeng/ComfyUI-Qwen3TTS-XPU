@@ -283,6 +283,66 @@ def _xpu_cleanup():
     gc.collect()
 
 
+# ── Text segmentation for long audio ──────────────────────────────────────────
+# Split long text at sentence boundaries, generate per segment, concatenate.
+
+def _estimate_chars_per_segment(max_new_tokens: int) -> int:
+    """Estimate safe Chinese-characters per segment from max_new_tokens.
+
+    Rule of thumb: 1 Chinese character ≈ 1 audio token (conservative).
+    Leave 20 % safety margin so generated tokens almost never exceed the budget.
+    """
+    return max(int(max_new_tokens * 0.65), 300)
+
+
+def _segment_text(text: str, max_new_tokens: int) -> List[str]:
+    """Split *text* at sentence boundaries so each segment stays within the
+    estimated token budget.  Returns a singleton list when *text* is short
+    enough for one pass.
+    """
+    limit = _estimate_chars_per_segment(max_new_tokens)
+    if len(text) <= limit:
+        return [text]
+
+    # Split at Chinese/English sentence terminators and newlines.
+    sentences = re.split(r'(?<=[。！？!?\n])', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    if not sentences:
+        return [text]
+
+    segments: List[str] = []
+    current = ""
+    for s in sentences:
+        if len(current) + len(s) > limit and current:
+            segments.append(current.strip())
+            current = s
+        else:
+            current += s
+    if current:
+        segments.append(current.strip())
+
+    print(f"🔧 [Qwen3-TTS-XPU] Auto-segmented {len(text)} chars → {len(segments)} segments "
+          f"(~{len(text)//max(len(segments),1)} chars/seg)")
+    return segments
+
+
+def _concatenate_audio(wavs: List[np.ndarray], sr: int, silence_ms: int = 150) -> np.ndarray:
+    """Concatenate audio *wavs* with *silence_ms* of silence between them."""
+    if len(wavs) == 1:
+        return wavs[0]
+
+    silence_len = int(sr * silence_ms / 1000)
+    silence = np.zeros(silence_len, dtype=np.float32)
+
+    parts: List[np.ndarray] = []
+    for i, w in enumerate(wavs):
+        if i > 0:
+            parts.append(silence)
+        parts.append(w)
+
+    return np.concatenate(parts)
+
+
 def _try_set_cc_for_windows():
     """On Windows, help Triton find a C compiler if CC is not already set."""
     if sys.platform != "win32" or "CC" in os.environ:
@@ -699,6 +759,7 @@ class VoiceDesignNode:
                 "full_text_prefill": ("BOOLEAN", {"default": True, "display_name": "🔷 full_text_prefill", "tooltip": "True（推荐）：全文一次性输入，生成质量更好。False：逐步输入模拟流式，速度无差异"}),
                 "cache_clean": ("BOOLEAN", {"default": True, "display_name": "🔷 cache_clean", "tooltip": "每次生成前后清理 XPU allocator 缓存，防止 torch_compile 残留显存累积导致第二次生成 OOM。不影响编译缓存和模型权重，第二次仍为热启动"}),
                 "trailing_pad": ("STRING", {"default": "…………………", "tooltip": "追加在文字末尾的填充内容，防止模型在朗读最后几个字之前提前生成 EOS 导致截断。默认 …… 可见且有效，留空则不追加"}),
+                "auto_segment": ("BOOLEAN", {"default": False, "display_name": "🔷 auto_segment", "tooltip": "启用后自动按句号/换行分句分段生成长文本，再拼接为完整音频。推荐在文本较长时开启，可提升生成质量和稳定性。"}),
             },
         }
 
@@ -729,6 +790,7 @@ class VoiceDesignNode:
         full_text_prefill: bool = True,
         cache_clean: bool = True,
         trailing_pad: str = "…………………",
+        auto_segment: bool = False,
     ) -> Tuple[Dict[str, Any]]:
         if not text or not instruct:
             raise RuntimeError("Text and instruction description are required")
@@ -767,35 +829,53 @@ class VoiceDesignNode:
 
         mapped_lang = LANGUAGE_MAP.get(language, "auto")
 
-        if trailing_pad:
-            text = text + trailing_pad
+        # ── Auto-segmentation ─────────────────────────────────────────────
+        raw_text = text
+        if auto_segment and len(raw_text) > _estimate_chars_per_segment(max_new_tokens):
+            segments = _segment_text(raw_text, max_new_tokens)
+        else:
+            segments = [raw_text]
+
+        if not trailing_pad:
+            trailing_pad = ""
 
         if cache_clean:
             _xpu_cleanup()
 
-        wavs, sr = model.generate_voice_design(
-            text=text,
-            language=mapped_lang,
-            instruct=instruct,
-            non_streaming_mode=full_text_prefill,
-            max_new_tokens=max_new_tokens,
-            top_p=top_p,
-            top_k=top_k,
-            temperature=temperature,
-            repetition_penalty=repetition_penalty,
-        )
+        chunk_wavs: List[np.ndarray] = []
+        final_sr = 0
+        for seg_idx, seg_text in enumerate(segments):
+            seg_input = seg_text + trailing_pad
+
+            if seg_idx > 0 and cache_clean:
+                _xpu_cleanup()
+
+            wavs, sr = model.generate_voice_design(
+                text=seg_input,
+                language=mapped_lang,
+                instruct=instruct,
+                non_streaming_mode=full_text_prefill,
+                max_new_tokens=max_new_tokens,
+                top_p=top_p,
+                top_k=top_k,
+                temperature=temperature,
+                repetition_penalty=repetition_penalty,
+            )
+            chunk_wavs.append(wavs[0])
+            final_sr = sr
 
         if cache_clean:
             _xpu_cleanup()
 
+        wav = _concatenate_audio(chunk_wavs, final_sr)
         pbar.update_absolute(3, 3, None)
 
-        if isinstance(wavs, list) and len(wavs) > 0:
-            waveform = torch.from_numpy(wavs[0]).float()
+        if wav.size > 0:
+            waveform = torch.from_numpy(wav).float()
             if waveform.ndim > 1:
                 waveform = waveform.squeeze()
             waveform = waveform.unsqueeze(0).unsqueeze(0)
-            audio_data = {"waveform": waveform, "sample_rate": sr}
+            audio_data = {"waveform": waveform, "sample_rate": final_sr}
 
             if unload_model_after_generate and hasattr(model, "_unload_callback") and model._unload_callback:
                 model._unload_callback()
@@ -837,6 +917,7 @@ class VoiceCloneNode:
                 "full_text_prefill": ("BOOLEAN", {"default": True, "display_name": "🔷 full_text_prefill", "tooltip": "True（推荐）：全文一次性输入，生成质量更好。False：逐步输入模拟流式，速度无差异"}),
                 "cache_clean": ("BOOLEAN", {"default": True, "display_name": "🔷 cache_clean", "tooltip": "每次生成前后清理 XPU allocator 缓存，防止 torch_compile 残留显存累积导致第二次生成 OOM。不影响编译缓存和模型权重，第二次仍为热启动"}),
                 "trailing_pad": ("STRING", {"default": "…………………", "tooltip": "追加在文字末尾的填充内容，防止模型在朗读最后几个字之前提前生成 EOS 导致截断。默认 …… 可见且有效，留空则不追加"}),
+                "auto_segment": ("BOOLEAN", {"default": False, "display_name": "🔷 auto_segment", "tooltip": "启用后自动按句号/换行分句分段生成长文本，再拼接为完整音频。推荐在文本较长时开启，可提升生成质量和稳定性。"}),
             },
         }
 
@@ -924,6 +1005,7 @@ class VoiceCloneNode:
         full_text_prefill: bool = True,
         cache_clean: bool = True,
         trailing_pad: str = "…………………",
+        auto_segment: bool = False,
     ) -> Tuple[Dict[str, Any]]:
         if ref_audio is None and voice_clone_prompt is None:
             raise RuntimeError("Either reference audio or voice clone prompt is required")
@@ -970,9 +1052,6 @@ class VoiceCloneNode:
             voice_clone_prompt_param = None
             ref_audio_param = None
 
-            if trailing_pad:
-                target_text = target_text + trailing_pad
-
             if voice_clone_prompt is not None:
                 voice_clone_prompt_param = voice_clone_prompt
             elif ref_audio is not None:
@@ -980,37 +1059,59 @@ class VoiceCloneNode:
             else:
                 raise RuntimeError("Either ref_audio or voice_clone_prompt must be provided")
 
-            if cache_clean:
-                _xpu_cleanup()
+            # ── Auto-segmentation ─────────────────────────────────────────
+            raw_text = target_text
+            if auto_segment and len(raw_text) > _estimate_chars_per_segment(max_new_tokens):
+                segments = _segment_text(raw_text, max_new_tokens)
+            else:
+                segments = [raw_text]
 
-            wavs, sr = model.generate_voice_clone(
-                text=target_text,
-                language=mapped_lang,
-                ref_audio=ref_audio_param,
-                ref_text=ref_text if ref_text and ref_text.strip() else None,
-                voice_clone_prompt=voice_clone_prompt_param,
-                x_vector_only_mode=x_vector_only,
-                non_streaming_mode=full_text_prefill,
-                max_new_tokens=max_new_tokens,
-                top_p=top_p,
-                top_k=top_k,
-                temperature=temperature,
-                repetition_penalty=repetition_penalty,
-            )
+            if not trailing_pad:
+                trailing_pad = ""
 
             if cache_clean:
                 _xpu_cleanup()
+
+            chunk_wavs: List[np.ndarray] = []
+            final_sr = 0
+            for seg_idx, seg_text in enumerate(segments):
+                seg_input = seg_text + trailing_pad
+
+                if seg_idx > 0 and cache_clean:
+                    _xpu_cleanup()
+
+                wavs, sr = model.generate_voice_clone(
+                    text=seg_input,
+                    language=mapped_lang,
+                    ref_audio=ref_audio_param,
+                    ref_text=ref_text if ref_text and ref_text.strip() else None,
+                    voice_clone_prompt=voice_clone_prompt_param,
+                    x_vector_only_mode=x_vector_only,
+                    non_streaming_mode=full_text_prefill,
+                    max_new_tokens=max_new_tokens,
+                    top_p=top_p,
+                    top_k=top_k,
+                    temperature=temperature,
+                    repetition_penalty=repetition_penalty,
+                )
+                chunk_wavs.append(wavs[0])
+                final_sr = sr
+
+            if cache_clean:
+                _xpu_cleanup()
+
+            wav = _concatenate_audio(chunk_wavs, final_sr)
         except Exception as e:
             raise RuntimeError(f"Generation failed: {e}")
 
         pbar.update_absolute(3, 3, None)
 
-        if isinstance(wavs, list) and len(wavs) > 0:
-            waveform = torch.from_numpy(wavs[0]).float()
+        if wav.size > 0:
+            waveform = torch.from_numpy(wav).float()
             if waveform.ndim > 1:
                 waveform = waveform.squeeze()
             waveform = waveform.unsqueeze(0).unsqueeze(0)
-            audio_data = {"waveform": waveform, "sample_rate": sr}
+            audio_data = {"waveform": waveform, "sample_rate": final_sr}
 
             if unload_model_after_generate and hasattr(model, "_unload_callback") and model._unload_callback:
                 model._unload_callback()
@@ -1052,6 +1153,7 @@ class CustomVoiceNode:
                 "full_text_prefill": ("BOOLEAN", {"default": True, "display_name": "🔷 full_text_prefill", "tooltip": "True（推荐）：全文一次性输入，生成质量更好。False：逐步输入模拟流式，速度无差异"}),
                 "cache_clean": ("BOOLEAN", {"default": True, "display_name": "🔷 cache_clean", "tooltip": "每次生成前后清理 XPU allocator 缓存，防止 torch_compile 残留显存累积导致第二次生成 OOM。不影响编译缓存和模型权重，第二次仍为热启动"}),
                 "trailing_pad": ("STRING", {"default": "…………………", "tooltip": "追加在文字末尾的填充内容，防止模型在朗读最后几个字之前提前生成 EOS 导致截断。默认 …… 可见且有效，留空则不追加"}),
+                "auto_segment": ("BOOLEAN", {"default": False, "display_name": "🔷 auto_segment", "tooltip": "启用后自动按句号/换行分句分段生成长文本，再拼接为完整音频。推荐在文本较长时开启，可提升生成质量和稳定性。"}),
             },
         }
 
@@ -1083,6 +1185,7 @@ class CustomVoiceNode:
         full_text_prefill: bool = True,
         cache_clean: bool = True,
         trailing_pad: str = "…………………",
+        auto_segment: bool = False,
     ) -> Tuple[Dict[str, Any]]:
         if not text or not speaker:
             raise RuntimeError("Text and speaker are required")
@@ -1120,37 +1223,56 @@ class CustomVoiceNode:
         pbar.update_absolute(2, 3, None)
 
         mapped_lang = LANGUAGE_MAP.get(language, "auto")
+        mapped_speaker = speaker.lower().replace(" ", "_")
 
-        if trailing_pad:
-            text = text + trailing_pad
+        # ── Auto-segmentation ─────────────────────────────────────────────
+        raw_text = text
+        if auto_segment and len(raw_text) > _estimate_chars_per_segment(max_new_tokens):
+            segments = _segment_text(raw_text, max_new_tokens)
+        else:
+            segments = [raw_text]
 
-        if cache_clean:
-            _xpu_cleanup()
-
-        wavs, sr = model.generate_custom_voice(
-            text=text,
-            language=mapped_lang,
-            speaker=speaker.lower().replace(" ", "_"),
-            instruct=instruct if instruct and instruct.strip() else None,
-            non_streaming_mode=full_text_prefill,
-            max_new_tokens=max_new_tokens,
-            top_p=top_p,
-            top_k=top_k,
-            temperature=temperature,
-            repetition_penalty=repetition_penalty,
-        )
+        if not trailing_pad:
+            trailing_pad = ""
 
         if cache_clean:
             _xpu_cleanup()
 
+        chunk_wavs: List[np.ndarray] = []
+        final_sr = 0
+        for seg_idx, seg_text in enumerate(segments):
+            seg_input = seg_text + trailing_pad
+
+            if seg_idx > 0 and cache_clean:
+                _xpu_cleanup()
+
+            wavs, sr = model.generate_custom_voice(
+                text=seg_input,
+                language=mapped_lang,
+                speaker=mapped_speaker,
+                instruct=instruct if instruct and instruct.strip() else None,
+                non_streaming_mode=full_text_prefill,
+                max_new_tokens=max_new_tokens,
+                top_p=top_p,
+                top_k=top_k,
+                temperature=temperature,
+                repetition_penalty=repetition_penalty,
+            )
+            chunk_wavs.append(wavs[0])
+            final_sr = sr
+
+        if cache_clean:
+            _xpu_cleanup()
+
+        wav = _concatenate_audio(chunk_wavs, final_sr)
         pbar.update_absolute(3, 3, None)
 
-        if isinstance(wavs, list) and len(wavs) > 0:
-            waveform = torch.from_numpy(wavs[0]).float()
+        if wav.size > 0:
+            waveform = torch.from_numpy(wav).float()
             if waveform.ndim > 1:
                 waveform = waveform.squeeze()
             waveform = waveform.unsqueeze(0).unsqueeze(0)
-            audio_data = {"waveform": waveform, "sample_rate": sr}
+            audio_data = {"waveform": waveform, "sample_rate": final_sr}
 
             if unload_model_after_generate and hasattr(model, "_unload_callback") and model._unload_callback:
                 model._unload_callback()
