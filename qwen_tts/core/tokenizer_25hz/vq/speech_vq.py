@@ -13,11 +13,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import sox
 import copy
 import torch
 import operator
-import onnxruntime
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -118,12 +116,17 @@ class MelSpectrogramFeatures(nn.Module):
 class XVectorExtractor(nn.Module):
     def __init__(self, audio_codec_with_xvector):
         super().__init__()
+        # Lazily import onnxruntime and sox — only needed when this class is
+        # actually instantiated (25Hz tokenizer, rarely used). Avoids blocking
+        # module import when these optional dependencies are not installed.
+        import onnxruntime
         option = onnxruntime.SessionOptions()
         option.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
         option.intra_op_num_threads = 1
         providers = ["CPUExecutionProvider"]
         self.ort_session = onnxruntime.InferenceSession(audio_codec_with_xvector, sess_options=option, providers=providers)
 
+        import sox
         self.tfm = sox.Transformer()
         self.tfm.norm(db_level=-6)
 
