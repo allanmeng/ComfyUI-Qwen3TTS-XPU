@@ -894,13 +894,30 @@ class Qwen3TTSTokenizerV2Decoder(Qwen3TTSTokenizerV2DecoderPreTrainedModel):
         return wav.clamp(min=-1, max=1)
 
     def chunked_decode(self, codes, chunk_size=300, left_context_size=25):
+        BUCKET = 64  # pad T to multiples of this to avoid XPU driver JIT
         wavs = []
         start_index = 0
         while start_index < codes.shape[-1]:
             end_index = min(start_index + chunk_size, codes.shape[-1])
             context_size = left_context_size if start_index - left_context_size > 0 else start_index
             codes_chunk = codes[..., start_index - context_size : end_index]
+
+            # ── Bucket padding ────────────────────────────────────────────────
+            # Pad T to BUCKET multiple so XPU reuses the same compiled kernel
+            # across different chunks with similar shapes.
+            t = codes_chunk.shape[-1]
+            pad_t = (BUCKET - t % BUCKET) % BUCKET
+            if pad_t:
+                codes_chunk = F.pad(codes_chunk, (0, pad_t))
+
             wav_chunk = self(codes_chunk)
+
+            # Trim off padding from the right end
+            if pad_t:
+                extra = pad_t * self.total_upsample
+                wav_chunk = wav_chunk[..., :wav_chunk.shape[-1] - extra]
+            # ── End bucket padding ────────────────────────────────────────────
+
             wavs.append(wav_chunk[..., context_size * self.total_upsample :])
             start_index = end_index
         return torch.cat(wavs, dim=-1)

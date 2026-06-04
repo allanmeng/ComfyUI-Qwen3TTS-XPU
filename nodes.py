@@ -343,6 +343,38 @@ def _concatenate_audio(wavs: List[np.ndarray], sr: int, silence_ms: int = 150) -
     return np.concatenate(parts)
 
 
+# ── XPU Mimi Decoder kernel warmup ────────────────────────────────────────────
+# The Intel GPU driver JIT-compiles kernels per-input-shape on first use (~8-10s).
+# Pre-warm common bucket sizes at model load so user doesn't pay this cost during
+# the first generation.  The bucket-padding in chunked_decode (modelling) rounds
+# every chunk's T dimension up to the next multiple of 64, so the shapes below
+# cover all practical chunk shapes.
+
+_BUCKET_SIZES = [64, 128, 192, 256, 320, 384, 448, 512]
+
+
+def _warmup_xpu_decode(speech_tokenizer) -> None:
+    """Run one dummy decode pass for each common bucket size.
+
+    Must be called *after* the speech_tokenizer has been moved to XPU.
+    """
+    device = next(speech_tokenizer.model.parameters()).device
+    n_q = getattr(speech_tokenizer.model.config, "num_quantizers", 16)
+
+    print(f"🔧 [Qwen3-TTS-XPU] Pre-warming Mimi Decoder XPU kernels for "
+          f"T={_BUCKET_SIZES[0]}..{_BUCKET_SIZES[-1]}...")
+
+    with torch.inference_mode():
+        for bucket_t in _BUCKET_SIZES:
+            dummy = torch.zeros(1, bucket_t, n_q, dtype=torch.long, device=device)
+            speech_tokenizer.decode([{"audio_codes": dummy}])
+            if hasattr(torch, "xpu") and torch.xpu.is_available():
+                torch.xpu.synchronize()
+
+    print(f"✅ [Qwen3-TTS-XPU] Mimi Decoder kernels warmed up "
+          f"({len(_BUCKET_SIZES)} buckets)")
+
+
 def _try_set_cc_for_windows():
     """On Windows, help Triton find a C compiler if CC is not already set."""
     if sys.platform != "win32" or "CC" in os.environ:
@@ -718,6 +750,17 @@ def load_qwen_model(
     if torch_compile and model is not None:
         print(f"🔧 [Qwen3-TTS-XPU] Applying torch.compile (backend=inductor, dynamic=True) — first run will be slow...")
         _apply_torch_compile(model, dynamic=True, backend="inductor")
+
+    # ── XPU Mimi Decoder kernel warmup ──────────────────────────────────
+    # Pre-warm common bucket sizes so Audio Decode doesn't pay 8-10s per
+    # new shape during the first generation.
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        st = getattr(getattr(model, "model", None), "speech_tokenizer", None)
+        if st is not None and hasattr(st, "get_output_sample_rate"):
+            try:
+                _warmup_xpu_decode(st)
+            except Exception as e:
+                print(f"⚠️ [Qwen3-TTS-XPU] XPU decode warmup skipped: {e}")
 
     _MODEL_CACHE[cache_key] = model
 
