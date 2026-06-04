@@ -366,7 +366,10 @@ def _warmup_xpu_decode(speech_tokenizer) -> None:
 
     with torch.inference_mode():
         for bucket_t in _BUCKET_SIZES:
-            dummy = torch.zeros(1, bucket_t, n_q, dtype=torch.long, device=device)
+            # audio_codes must be (T, Q) — the decode wrapper's pad_sequence
+            # adds the batch dimension.  (1, T, Q) would be misread as a
+            # length-1 sequence with features=(T, Q), causing a shape mismatch.
+            dummy = torch.zeros(bucket_t, n_q, dtype=torch.long, device=device)
             speech_tokenizer.decode([{"audio_codes": dummy}])
             if hasattr(torch, "xpu") and torch.xpu.is_available():
                 torch.xpu.synchronize()
